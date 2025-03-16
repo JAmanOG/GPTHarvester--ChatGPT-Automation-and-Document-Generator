@@ -121,3 +121,7 @@ ipcMain.handle('save-questions', (event, questions) => {
       return false;
     }
   });
+  
+  ipcMain.handle('open-external-link', (event, url) => {
+    shell.openExternal(url);
+  });

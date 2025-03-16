@@ -1,8 +1,12 @@
 {
-  "name": "automation-search-agent",
+  "name": "gptharvester",
   "version": "1.0.0",
   "description": "An automation tool for searching and retrieving information using ChatGPT",
-  "author": "Your Name",
+  "author": "Aman Jaiswal",
+  "contributors": [
+    "Aman Jaiswal <jaman0120@gmail.com> (https://www.linkedin.com/in/aman-jaiswalg)"
+  ],
+
   "main": "main.js",
   "scripts": {
     "start": "electron-forge start",
@@ -33,17 +37,22 @@
   },
   "config": {
     "forge": {
+      "packagerConfig": {
+        "icon": "./GPTHarvester"
+      },
       "makers": [
         {
           "name": "@electron-forge/maker-squirrel",
           "config": {
-            "name": "automation_search_agent"
+            "name": "GPTHarvester",
+            "setupIcon": "./GPTHarvester.ico"
           }
         },
         {
           "name": "@electron-forge/maker-zip",
           "platforms": [
-            "win32"
+            "win32",
+            "darwin"      
           ]
         }
       ]

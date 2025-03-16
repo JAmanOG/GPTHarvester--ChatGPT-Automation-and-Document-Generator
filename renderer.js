@@ -208,9 +208,33 @@ openWordBtn.addEventListener('click', () => {
 });
 
 copyJsonBtn.addEventListener('click', () => {
-  if (currentResults.length > 0) {
-    navigator.clipboard.writeText(JSON.stringify(currentResults, null, 2));
-    alert('Results copied to clipboard as JSON');
+  console.log('Current results:', currentResults);
+  
+  if (currentResults && currentResults.length > 0) {
+    try {
+      const jsonString = JSON.stringify(currentResults, null, 2);
+      console.log('JSON string created successfully');
+      
+      navigator.clipboard.writeText(jsonString)
+        .then(() => {
+          console.log('Clipboard write successful');
+          alert('Results copied to clipboard as JSON');
+        })
+        .catch(err => {
+          console.error('Clipboard write failed:', err);
+          // Fallback method using textarea
+          const textarea = document.createElement('textarea');
+          textarea.value = jsonString;
+          document.body.appendChild(textarea);
+          textarea.select();
+          document.execCommand('copy');
+          document.body.removeChild(textarea);
+          alert('Results copied to clipboard as JSON (fallback method)');
+        });
+    } catch (error) {
+      console.error('JSON stringify error:', error);
+      alert('Error creating JSON: ' + error.message);
+    }
   } else {
     alert('No results available to copy');
   }
@@ -256,5 +280,14 @@ document.getElementById('setup-profile-btn').addEventListener('click', async () 
     }
 });
 
+document.addEventListener('click', (event) => {
+  if (event.target.tagName === 'A' && event.target.target === '_blank') {
+    event.preventDefault();
+    
+    const url = event.target.href;
+    
+    ipcRenderer.invoke('open-external-link', url);
+  }
+});
 
 loadQuestionSets();

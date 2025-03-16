@@ -287,3 +287,10 @@ button:hover {
     visibility: visible;
     opacity: 1;
   }
+  .app-footer {
+    text-align: center;
+    padding: 10px;
+    margin-top: 20px;
+    font-size: 0.8rem;
+    color: #666;
+  }

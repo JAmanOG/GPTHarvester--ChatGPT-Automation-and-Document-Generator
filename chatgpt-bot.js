@@ -16,7 +16,11 @@ const {
 const path = require("path");
 const executablePath = require("puppeteer").executablePath;
 
-puppeteerExtra.use(StealthPlugin());
+// puppeteerExtra.use(StealthPlugin());
+const stealth = StealthPlugin();
+stealth.enabledEvasions.delete("iframe.contentWindow");
+stealth.enabledEvasions.delete("media.codecs");
+puppeteerExtra.use(stealth);
 
 const userDataDir = path.join(__dirname, "chrome-data");
 const cookiesPath = path.join(__dirname, "cookies.json");
@@ -55,7 +59,7 @@ function isProfileReady() {
   );
 }
 
- async function setupChromeProfile(chromePath) {
+async function setupChromeProfile(chromePath) {
   try {
     console.log("Creating a fresh Chrome profile for ChatGPT...");
     console.log(`Using Chrome from: ${chromePath}`);
@@ -71,14 +75,8 @@ function isProfileReady() {
     const browser = await puppeteerExtra.launch({
       headless: false,
       userDataDir: userDataDir,
-      args: [
-        "--no-sandbox",
-        "--disable-setuid-sandbox",
-        "--disable-blink-features=AutomationControlled",
-        "--disable-extensions-except=",
-        "--enable-automation=false",
-        ],
-      ignoreDefaultArgs: ["--enable-automation", "--disable-extensions"],
+      dumpio: true,
+      args: ["--start-maximized", "--no-sandbox", "--disable-setuid-sandbox"],
       ignoreHTTPSErrors: true,
       executablePath: chromePath,
     });
@@ -100,7 +98,7 @@ function isProfileReady() {
           document.querySelector("textarea") !== null
         );
       },
-      { timeout: 300000 } 
+      { timeout: 300000 }
     );
 
     console.log("Login detected successfully");
@@ -116,233 +114,219 @@ function isProfileReady() {
   }
 }
 
-   async function runChatGPTAutomation (questions, options = {}) {
-    if (!isProfileReady()) {
-      console.log(
-        "No valid Chrome profile found. Setting up new profile first..."
-      );
-      const chromePath =
-        options.chromePath ||
-        "C:/Program Files/Google/Chrome/Application/chrome.exe";
-      await setupChromeProfile(chromePath);
-    }
+async function runChatGPTAutomation(questions, options = {}) {
+  if (!isProfileReady()) {
+    console.log(
+      "No valid Chrome profile found. Setting up new profile first..."
+    );
     const chromePath =
       options.chromePath ||
       "C:/Program Files/Google/Chrome/Application/chrome.exe";
-    const progressCallback = options.progressCallback || (() => {});
-
-    progressCallback({
-      status: "starting",
-      progress: 0,
-      message: "Launching browser...",
-    });
-
-    const browser = await puppeteerExtra.launch({
-      headless: false,
-      userDataDir: userDataDir,
-      args: [
-        "--no-sandbox",
-        "--disable-setuid-sandbox",
-        "--disable-blink-features=AutomationControlled",
-        "--disable-extensions-except=",
-        "--enable-automation=false",
-        ],
-      ignoreDefaultArgs: ["--enable-automation"],
-      executablePath: chromePath,
-    });
-    const page = await browser.newPage();
-
-    await page.setUserAgent(
-      "Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/134.0.0.0 Safari/537.36"
-    );
-
-    progressCallback({
-      status: "navigating",
-      progress: 10,
-      message: "Navigating to ChatGPT...",
-    });
-
-    await page.setDefaultNavigationTimeout(120000); // Increase timeout to 2 minutes
-    await new Promise((r) => setTimeout(r, 3000)); // Wait 3 seconds before navigating
-    await page.goto("https://chat.openai.com/", { waitUntil: "networkidle2" });
-
-    try {
-      if (fs.existsSync(cookiesPath)) {
-        const cookies = JSON.parse(fs.readFileSync(cookiesPath, "utf8"));
-        await page.setCookie(...cookies);
-        progressCallback({
-          status: "cookies",
-          progress: 20,
-          message: "Cookies loaded.",
-        });
-        await page.reload({ waitUntil: "networkidle2" });
-      }
-    } catch (error) {
-      progressCallback({
-        status: "login-required",
-        progress: 20,
-        message: "No valid cookies found. Please log in manually.",
-      });
-    }
-
-    const isLoggedIn = await page.evaluate(() => {
-      return !document.querySelector('button[data-testid="login-button"]');
-    });
-
-    if (!isLoggedIn) {
-      progressCallback({
-        status: "login-required",
-        progress: 20,
-        message: "Please log in manually in the browser window...",
-      });
-
-      await new Promise((resolve) => {
-        const checkLogin = setInterval(async () => {
-          const loggedIn = await page.evaluate(() => {
-            return !document.querySelector(
-              'button[data-testid="login-button"]'
-            );
-          });
-
-          if (loggedIn) {
-            clearInterval(checkLogin);
-            resolve();
-          }
-        }, 20000);
-      });
-
-      const cookies = await page.cookies();
-      fs.writeFileSync(cookiesPath, JSON.stringify(cookies, null, 2));
-      progressCallback({
-        status: "cookies-saved",
-        progress: 30,
-        message: "Cookies saved for future use.",
-      });
-    }
-
-    const results = [];
-    progressCallback({
-      status: "processing",
-      progress: 30,
-      message: "Starting to process questions...",
-    });
-
-    for (let i = 0; i < questions.length; i++) {
-      const question = questions[i];
-      const questionNumber = i + 1;
-      const percentComplete = 30 + Math.floor((i / questions.length) * 60);
-
-      progressCallback({
-        status: "question",
-        progress: percentComplete,
-        currentQuestion: questionNumber,
-        totalQuestions: questions.length,
-        message: `Processing question ${questionNumber}/${
-          questions.length
-        }: ${question.substring(0, 30)}...`,
-      });
-
-      await page.type("textarea", question);
-      await page.keyboard.press("Enter");
-
-      await page
-        .waitForFunction(
-          () =>
-            document.querySelector('button[aria-label="Stop streaming"]') !==
-            null,
-          { timeout: 15000 }
-        )
-        .catch(() => {
-          progressCallback({
-            status: "error",
-            message: `Timeout waiting for response to start for question ${questionNumber}`,
-          });
-        });
-
-      await page
-        .waitForFunction(
-          () => {
-            const sendButton = document.querySelector(
-              'button[aria-label="Send prompt"]'
-            );
-            const voiceButton = document.querySelector(
-              'button[aria-label="Start voice mode"]'
-            );
-            return sendButton !== null || voiceButton !== null;
-          },
-          { timeout: 120000 }
-        )
-        .catch(() => {
-          progressCallback({
-            status: "error",
-            message: `Timeout waiting for response to complete for question ${questionNumber}`,
-          });
-        });
-
-      await new Promise((resolve) => setTimeout(resolve, 2000));
-
-      const responseText = await page.evaluate(() => {
-        try {
-          const messageContainers = Array.from(
-            document.querySelectorAll('[data-testid="conversation-turn"]')
-          );
-
-          if (messageContainers.length > 0) {
-            const lastContainer =
-              messageContainers[messageContainers.length - 1];
-
-            if (
-              !lastContainer
-                .querySelector(
-                  '[data-testid="conversation-turn-header"] .font-semibold'
-                )
-                ?.innerText.includes("You")
-            ) {
-              const markdown = lastContainer.querySelector(".markdown");
-              if (markdown) return markdown.innerText.trim();
-            }
-          }
-
-          const responseElements = Array.from(
-            document.querySelectorAll(".markdown")
-          );
-          if (responseElements.length > 0) {
-            return responseElements[
-              responseElements.length - 1
-            ].innerText.trim();
-          }
-
-          return "Failed to extract response";
-        } catch (error) {
-          return `Error extracting response: ${error.message}`;
-        }
-      });
-
-      results.push({ question, response: responseText });
-      await new Promise((resolve) => setTimeout(resolve, 2000));
-    }
-
-    progressCallback({
-      status: "saving",
-      progress: 90,
-      message: "Saving results...",
-    });
-
-    fs.writeFileSync(
-      "chatgpt_responses.json",
-      JSON.stringify(results, null, 2)
-    );
-    await saveToWordDoc(results);
-
-    progressCallback({
-      status: "finished",
-      progress: 100,
-      message: "All questions processed!",
-    });
-    await browser.close();
-
-    return results;
+    await setupChromeProfile(chromePath);
   }
+  const chromePath =
+    options.chromePath ||
+    "C:/Program Files/Google/Chrome/Application/chrome.exe";
+  const progressCallback = options.progressCallback || (() => {});
+
+  progressCallback({
+    status: "starting",
+    progress: 0,
+    message: "Launching browser...",
+  });
+
+  const browser = await puppeteerExtra.launch({
+    headless: false,
+    userDataDir: userDataDir,
+    dumpio: true,
+    args: ["--start-maximized", "--no-sandbox", "--disable-setuid-sandbox"],
+    executablePath: chromePath,
+  });
+  const page = await browser.newPage();
+
+  await page.setUserAgent(
+    "Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/134.0.0.0 Safari/537.36"
+  );
+
+  progressCallback({
+    status: "navigating",
+    progress: 10,
+    message: "Navigating to ChatGPT...",
+  });
+
+  await page.setDefaultNavigationTimeout(120000); // Increase timeout to 2 minutes
+  await new Promise((r) => setTimeout(r, 3000)); // Wait 3 seconds before navigating
+  await page.goto("https://chat.openai.com/", { waitUntil: "networkidle2" });
+
+  try {
+    if (fs.existsSync(cookiesPath)) {
+      const cookies = JSON.parse(fs.readFileSync(cookiesPath, "utf8"));
+      await page.setCookie(...cookies);
+      progressCallback({
+        status: "cookies",
+        progress: 20,
+        message: "Cookies loaded.",
+      });
+      await page.reload({ waitUntil: "networkidle2" });
+    }
+  } catch (error) {
+    progressCallback({
+      status: "login-required",
+      progress: 20,
+      message: "No valid cookies found. Please log in manually.",
+    });
+  }
+
+  const isLoggedIn = await page.evaluate(() => {
+    return !document.querySelector('button[data-testid="login-button"]');
+  });
+
+  if (!isLoggedIn) {
+    progressCallback({
+      status: "login-required",
+      progress: 20,
+      message: "Please log in manually in the browser window...",
+    });
+
+    await new Promise((resolve) => {
+      const checkLogin = setInterval(async () => {
+        const loggedIn = await page.evaluate(() => {
+          return !document.querySelector('button[data-testid="login-button"]');
+        });
+
+        if (loggedIn) {
+          clearInterval(checkLogin);
+          resolve();
+        }
+      }, 20000);
+    });
+
+    const cookies = await page.cookies();
+    fs.writeFileSync(cookiesPath, JSON.stringify(cookies, null, 2));
+    progressCallback({
+      status: "cookies-saved",
+      progress: 30,
+      message: "Cookies saved for future use.",
+    });
+  }
+
+  const results = [];
+  progressCallback({
+    status: "processing",
+    progress: 30,
+    message: "Starting to process questions...",
+  });
+
+  for (let i = 0; i < questions.length; i++) {
+    const question = questions[i];
+    const questionNumber = i + 1;
+    const percentComplete = 30 + Math.floor((i / questions.length) * 60);
+
+    progressCallback({
+      status: "question",
+      progress: percentComplete,
+      currentQuestion: questionNumber,
+      totalQuestions: questions.length,
+      message: `Processing question ${questionNumber}/${
+        questions.length
+      }: ${question.substring(0, 30)}...`,
+    });
+
+    await page.type("textarea", question);
+    await page.keyboard.press("Enter");
+
+    await page
+      .waitForFunction(
+        () =>
+          document.querySelector('button[aria-label="Stop streaming"]') !==
+          null,
+        { timeout: 15000 }
+      )
+      .catch(() => {
+        progressCallback({
+          status: "error",
+          message: `Timeout waiting for response to start for question ${questionNumber}`,
+        });
+      });
+
+    await page
+      .waitForFunction(
+        () => {
+          const sendButton = document.querySelector(
+            'button[aria-label="Send prompt"]'
+          );
+          const voiceButton = document.querySelector(
+            'button[aria-label="Start voice mode"]'
+          );
+          return sendButton !== null || voiceButton !== null;
+        },
+        { timeout: 120000 }
+      )
+      .catch(() => {
+        progressCallback({
+          status: "error",
+          message: `Timeout waiting for response to complete for question ${questionNumber}`,
+        });
+      });
+
+    await new Promise((resolve) => setTimeout(resolve, 2000));
+
+    const responseText = await page.evaluate(() => {
+      try {
+        const messageContainers = Array.from(
+          document.querySelectorAll('[data-testid="conversation-turn"]')
+        );
+
+        if (messageContainers.length > 0) {
+          const lastContainer = messageContainers[messageContainers.length - 1];
+
+          if (
+            !lastContainer
+              .querySelector(
+                '[data-testid="conversation-turn-header"] .font-semibold'
+              )
+              ?.innerText.includes("You")
+          ) {
+            const markdown = lastContainer.querySelector(".markdown");
+            if (markdown) return markdown.innerText.trim();
+          }
+        }
+
+        const responseElements = Array.from(
+          document.querySelectorAll(".markdown")
+        );
+        if (responseElements.length > 0) {
+          return responseElements[responseElements.length - 1].innerText.trim();
+        }
+
+        return "Failed to extract response";
+      } catch (error) {
+        return `Error extracting response: ${error.message}`;
+      }
+    });
+
+    results.push({ question, response: responseText });
+    await new Promise((resolve) => setTimeout(resolve, 2000));
+  }
+
+  progressCallback({
+    status: "saving",
+    progress: 90,
+    message: "Saving results...",
+  });
+
+  fs.writeFileSync("chatgpt_responses.json", JSON.stringify(results, null, 2));
+  await saveToWordDoc(results);
+
+  progressCallback({
+    status: "finished",
+    progress: 100,
+    message: "All questions processed!",
+  });
+  await browser.close();
+
+  return results;
+}
 
 async function saveToWordDoc(results) {
   const doc = new Document({
@@ -467,12 +451,99 @@ async function saveToWordDoc(results) {
   console.log("Responses saved to chatgpt_responses.docx");
 }
 
-function processTextWithLineBreaks(text, children) {
-  const lines = text.split("\n");
+// function processTextWithLineBreaks(text, children) {
+//   const lines = text.split("\n");
 
-  lines.forEach((line) => {
-    if (line.trim()) {
+//   lines.forEach((line) => {
+//     if (line.trim()) {
+//       if (line.trim().match(/^#{1,6}\s/)) {
+//         const level = line.match(/^(#{1,6})\s/)[1].length;
+//         const headingText = line.replace(/^#{1,6}\s/, "");
+//         children.push(
+//           new Paragraph({
+//             text: headingText,
+//             heading: `Heading${level + 1}`,
+//             spacing: { before: 200, after: 120 },
+//           })
+//         );
+//       } else if (line.trim().match(/^[•\-*]\s/)) {
+//         children.push(
+//           new Paragraph({
+//             text: line,
+//             bullet: {
+//               level: 0,
+//             },
+//             spacing: { before: 60, after: 60 },
+//           })
+//         );
+//       } else if (line.includes(":")) {
+//         const colonIndex = line.indexOf(":");
+//         const textBefore = line.substring(0, colonIndex).trim();
+//         const textAfter = line.substring(colonIndex + 1).trim();
+
+//         // Create a paragraph with mixed formatting using children array
+//         children.push(
+//           new Paragraph({
+//             spacing: { before: 80, after: 80 },
+//             children: [
+//               new TextRun({
+//                 text: textBefore + ":",
+//                 bold: true,
+//               }),
+//               new TextRun({
+//                 text: textAfter ? " " + textAfter : "",
+//               }),
+//             ],
+//           })
+//         );
+//       } else if (line.includes("–")) {
+//         const colonIndex = line.indexOf("–");
+//         const textBefore = line.substring(0, colonIndex).trim();
+//         const textAfter = line.substring(colonIndex + 1).trim();
+
+//         // Create a paragraph with mixed formatting using children array
+//         children.push(
+//           new Paragraph({
+//             spacing: { before: 80, after: 80 },
+//             children: [
+//               new TextRun({
+//                 text: textBefore + "–",
+//                 bold: true,
+//               }),
+//               new TextRun({
+//                 text: textAfter ? " " + textAfter : "",
+//               }),
+//             ],
+//           })
+//         );
+//       } else {
+//         children.push(
+//           new Paragraph({
+//             text: line,
+//             spacing: { before: 80, after: 80 },
+//           })
+//         );
+//       }
+//     }
+//   });
+// }
+
+function processTextWithLineBreaks(text, children) {
+  // First split the text into paragraphs (separated by double newlines)
+  const paragraphs = text.split(/\n\n+/);
+
+  paragraphs.forEach((paragraph, paragraphIndex) => {
+    // Skip empty paragraphs
+    if (!paragraph.trim()) return;
+
+    // Process each paragraph
+    const lines = paragraph.split("\n");
+
+    lines.forEach((line, lineIndex) => {
+      if (!line.trim()) return; // Skip empty lines
+
       if (line.trim().match(/^#{1,6}\s/)) {
+        // Handle headings
         const level = line.match(/^(#{1,6})\s/)[1].length;
         const headingText = line.replace(/^#{1,6}\s/, "");
         children.push(
@@ -483,46 +554,65 @@ function processTextWithLineBreaks(text, children) {
           })
         );
       } else if (line.trim().match(/^[•\-*]\s/)) {
+        // Handle bullet points
         children.push(
           new Paragraph({
             text: line,
-            bullet: {
-              level: 0,
-            },
+            bullet: { level: 0 },
             spacing: { before: 60, after: 60 },
           })
         );
       } else if (line.includes(":")) {
+        // Handle key-value pairs
         const colonIndex = line.indexOf(":");
         const textBefore = line.substring(0, colonIndex).trim();
         const textAfter = line.substring(colonIndex + 1).trim();
 
-        // Create a paragraph with mixed formatting using children array
         children.push(
           new Paragraph({
             spacing: { before: 80, after: 80 },
             children: [
-              new TextRun({
-                text: textBefore + ":",
-                bold: true,
-              }),
-              new TextRun({
-                text: textAfter ? " " + textAfter : "",
-              }),
+              new TextRun({ text: textBefore + ":", bold: true }),
+              new TextRun({ text: textAfter ? " " + textAfter : "" }),
+            ],
+          })
+        );
+      } else if (line.includes("-")) {
+        // Handle dash separators
+        const dashIndex = line.indexOf("-");
+        const textBefore = line.substring(0, dashIndex).trim();
+        const textAfter = line.substring(dashIndex + 1).trim();
+
+        children.push(
+          new Paragraph({
+            spacing: { before: 80, after: 80 },
+            children: [
+              new TextRun({ text: textBefore + "-", bold: true }),
+              new TextRun({ text: textAfter ? " " + textAfter : "" }),
             ],
           })
         );
       } else {
-        children.push(
-          new Paragraph({
-            text: line,
-            spacing: { before: 80, after: 80 },
-          })
-        );
+        // Handle regular text
+        const spacing = {
+          before: lineIndex === 0 ? 120 : 40, // More space before first line of paragraph
+          after: lineIndex === lines.length - 1 ? 120 : 40, // More space after last line
+        };
+
+        children.push(new Paragraph({ text: line, spacing }));
       }
+    });
+
+    // Add extra spacing between paragraphs
+    if (paragraphIndex < paragraphs.length - 1) {
+      children.push(
+        new Paragraph({
+          text: "",
+          spacing: { before: 100, after: 100 },
+        })
+      );
     }
   });
 }
-
 
 module.exports = { runChatGPTAutomation, setupChromeProfile };
