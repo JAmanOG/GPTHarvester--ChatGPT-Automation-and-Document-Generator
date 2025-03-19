@@ -6,7 +6,6 @@
   "contributors": [
     "Aman Jaiswal <jaman0120@gmail.com> (https://www.linkedin.com/in/aman-jaiswalg)"
   ],
-
   "main": "main.js",
   "scripts": {
     "start": "electron-forge start",
@@ -19,6 +18,7 @@
   "devDependencies": {
     "@electron-forge/cli": "^6.2.1",
     "@electron-forge/maker-deb": "^6.2.1",
+    "@electron-forge/maker-dmg": "^7.7.0",
     "@electron-forge/maker-rpm": "^6.2.1",
     "@electron-forge/maker-squirrel": "^6.4.2",
     "@electron-forge/maker-zip": "^6.4.2",
@@ -52,7 +52,16 @@
           "name": "@electron-forge/maker-zip",
           "platforms": [
             "win32",
-            "darwin"      
+            "darwin"
+          ]
+        },
+        {
+          "name": "@electron-forge/maker-dmg",
+          "config": {
+            "icon": "./GPTHarvesterMac.icns"
+          },
+          "platforms": [
+            "darwin"
           ]
         }
       ]
