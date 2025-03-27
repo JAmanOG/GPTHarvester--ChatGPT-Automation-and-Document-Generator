@@ -76,7 +76,7 @@ Contributions are welcome! Please feel free to submit a Pull Request.
 
 ## License
 
-ISC License
+MIT License
 
 ## Author
 
